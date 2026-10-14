@@ -1,0 +1,8 @@
+# Local design experiments are retained locally, outside the published site.
+/versions/
+
+# Local preview and operating system files.
+/.preview/
+.DS_Store
+Thumbs.db
+Desktop.ini

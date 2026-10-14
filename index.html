@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Armon | Portfolio</title>
+<meta name="description" content="Explore Armon's jobs, projects, expertise, timeline, and education through an interactive constellation.">
+<meta name="theme-color" content="#000000">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000;
+    --fg: #fff;
+    --dim: rgba(255,255,255,.45);
+    --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    --sans: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    color: var(--fg); font-family: var(--sans);
+    -webkit-font-smoothing: antialiased; overscroll-behavior: none;
+  }
+  body {
+    background: radial-gradient(ellipse 70% 60% at 50% 48%, #141417 0%, #09090b 45%, #030303 75%, #000 100%);
+    background-color: #000;
+  }
+  #grain {
+    position: fixed; inset: 0; pointer-events: none; z-index: 1;
+    opacity: .05; mix-blend-mode: screen; background-size: 180px 180px;
+  }
+  #stage {
+    position: fixed; inset: 0; z-index: 2;
+    touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab;
+  }
+  #stage.dragging, #stage.dragging .node { cursor: grabbing; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #labels { position: absolute; inset: 0; pointer-events: none; }
+
+  /* Titles are printed onto the sphere's surface and turn with it */
+  .node {
+    --a: 1;
+    position: absolute; left: 0; top: 0;
+    pointer-events: auto; cursor: pointer;
+    background: none; border: 0; margin: 0;
+    padding: 6px 10px;
+    color: rgba(255,255,255,var(--a));
+    font: 400 30px/1 var(--sans); letter-spacing: .24em; text-transform: uppercase;
+    white-space: nowrap;
+    text-shadow: 0 0 16px rgba(255,255,255,calc(var(--a) * .4));
+    transform-origin: 0 0;
+    transition: text-shadow .3s;
+    will-change: transform, opacity;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .node:focus-visible { outline: none; }
+  .node.lit { --a: 1 !important; text-shadow: 0 0 24px rgba(255,255,255,.75); }
+
+  /* Detail panel */
+  #panel {
+    position: fixed; z-index: 10; top: 0; right: 0; bottom: 0;
+    width: min(440px, 100%);
+    background: rgba(0,0,0,.85);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    border-left: 1px solid rgba(255,255,255,.2);
+    padding: 72px 32px 32px;
+    transform: translateX(100%); visibility: hidden;
+    transition: transform .5s cubic-bezier(.2,.8,.2,1), visibility 0s .5s;
+    overflow-y: auto;
+  }
+  #panel.open { transform: none; visibility: visible; transition: transform .5s cubic-bezier(.2,.8,.2,1); }
+  #panel .kicker { font: 400 11px/1 var(--mono); letter-spacing: .2em; color: var(--dim); text-transform: uppercase; }
+  #panel h2 { font: 500 34px/1.1 var(--sans); letter-spacing: .08em; text-transform: uppercase; margin: 0 0 20px; }
+  #panel p  { color: rgba(255,255,255,.72); line-height: 1.6; margin: 0 0 16px; }
+  #panel .rule { height: 1px; background: rgba(255,255,255,.2); margin: 24px 0; }
+  #panel .links { display: flex; flex-wrap: wrap; gap: 8px; }
+  #panel .links button {
+    font: 400 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+    color: var(--fg); background: transparent; border: 1px solid rgba(255,255,255,.4);
+    border-radius: 999px; padding: 9px 14px; cursor: pointer;
+  }
+  #panel .links button:hover { background: var(--fg); color: var(--bg); }
+  #close {
+    position: absolute; top: 20px; right: 20px; width: 36px; height: 36px; border-radius: 50%;
+    background: transparent; color: var(--fg); border: 1px solid rgba(255,255,255,.4);
+    font: 400 18px/1 var(--mono); cursor: pointer;
+  }
+  #close:hover { background: var(--fg); color: var(--bg); }
+
+  @media (max-width: 720px) {
+    .node { font-size: 19px; letter-spacing: .18em; }
+    #panel {
+      top: auto; left: 0; width: 100%; height: 62vh;
+      border-left: 0; border-top: 1px solid rgba(255,255,255,.2);
+      border-radius: 18px 18px 0 0; transform: translateY(100%);
+      padding: 56px 20px calc(24px + env(safe-area-inset-bottom));
+    }
+    #panel h2 { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="grain"></div>
+<div id="stage">
+  <canvas id="c"></canvas>
+  <div id="labels"></div>
+</div>
+
+<aside id="panel" aria-hidden="true">
+  <button id="close" aria-label="Close">×</button>
+  <h2 id="p-title">Title</h2>
+  <p id="p-body"></p>
+  <div class="rule"></div>
+  <div class="kicker" style="margin-bottom:12px">Connected to</div>
+  <div class="links" id="p-links"></div>
+</aside>
+
+<script>
+(() => {
+  // ---------- Content ----------
+  // Triangular bipyramid: 2 poles + 3 evenly spaced on the equator.
+  const eq = a => [Math.cos(a * Math.PI / 180), 0, Math.sin(a * Math.PI / 180)];
+  const NODES = [
+    { id: 'jobs',      label: 'Jobs',      pos: [0,  1, 0], body: 'Roles, companies and what you shipped at each one. Placeholder content.' },
+    { id: 'projects',  label: 'Projects',  pos: eq(90),     body: 'Selected work, case studies and side projects. Placeholder content.' },
+    { id: 'expertise', label: 'Expertise', pos: eq(210),    body: 'Skills, tools and domains you know deeply. Placeholder content.' },
+    { id: 'timeline',  label: 'Timeline',  pos: eq(330),    body: 'A chronological path through career and life milestones. Placeholder content.' },
+    { id: 'education', label: 'Education', pos: [0, -1, 0], body: 'Degrees, certifications and ongoing learning. Placeholder content.' },
+  ];
+  const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
+
+  // ---------- Math ----------
+  const TAU = Math.PI * 2;
+  const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+  const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+  const norm3 = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0]/l, v[1]/l, v[2]/l]; };
+  const Q = {
+    mul(a, b) {
+      const [aw,ax,ay,az] = a, [bw,bx,by,bz] = b;
+      return [aw*bw-ax*bx-ay*by-az*bz, aw*bx+ax*bw+ay*bz-az*by, aw*by-ax*bz+ay*bw+az*bx, aw*bz+ax*by-ay*bx+az*bw];
+    },
+    axisAngle(ax, ang) { const s = Math.sin(ang/2); return [Math.cos(ang/2), ax[0]*s, ax[1]*s, ax[2]*s]; },
+    norm(a) { const l = Math.hypot(a[0],a[1],a[2],a[3]); return a.map(v => v/l); },
+    fromTo(a, b) {
+      const d = dot(a, b);
+      if (d < -0.9999) return [0, 0, 1, 0];
+      const c = cross(a, b);
+      return Q.norm([1 + d, c[0], c[1], c[2]]);
+    },
+    slerp(a, b, t) {
+      let d = a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
+      if (d < 0) { b = b.map(v => -v); d = -d; }
+      if (d > 0.9995) return Q.norm(a.map((v,i) => v + (b[i]-v)*t));
+      const th = Math.acos(d), s = Math.sin(th);
+      const wa = Math.sin((1-t)*th)/s, wb = Math.sin(t*th)/s;
+      return a.map((v,i) => v*wa + b[i]*wb);
+    },
+    toMat([w,x,y,z]) {
+      return [1-2*(y*y+z*z), 2*(x*y-w*z), 2*(x*z+w*y),
+              2*(x*y+w*z), 1-2*(x*x+z*z), 2*(y*z-w*x),
+              2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x*x+y*y)];
+    },
+  };
+  const rot = (m, p) => [m[0]*p[0]+m[1]*p[1]+m[2]*p[2], m[3]*p[0]+m[4]*p[1]+m[5]*p[2], m[6]*p[0]+m[7]*p[1]+m[8]*p[2]];
+  const slerpVec = (a, b, t) => {
+    const om = Math.acos(Math.max(-1, Math.min(1, dot(a, b))));
+    if (om < 1e-4) return a;
+    const s = Math.sin(om), wa = Math.sin((1-t)*om)/s, wb = Math.sin(t*om)/s;
+    return [a[0]*wa+b[0]*wb, a[1]*wa+b[1]*wb, a[2]*wa+b[2]*wb];
+  };
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const smooth = (e0, e1, x) => { const t = clamp((x-e0)/(e1-e0), 0, 1); return t*t*(3-2*t); };
+  const ease = t => 1 - Math.pow(1 - t, 3);
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2*Math.log(u)) * Math.cos(TAU*v); };
+  const randDir = () => norm3([gauss(), gauss(), gauss()]);
+
+  // ---------- Constellation ----------
+  // Glowing points: [x, y, z, size, brightness, phase, flowPos, flowAmount].
+  // Lines are tightly packed points, so everything shares the same soft glow.
+  // flowPos/flowAmount let a slow highlight travel along a line.
+  function strokeAlong(out, pts, spacingArc, size, bright, flow, seed) {
+    for (let k = 0; k < pts.length; k++) out.push([...pts[k], size, bright, seed, k * spacingArc * 4, flow]);
+  }
+  function arcPts(a, b, spacing) {
+    const om = Math.acos(clamp(dot(a, b), -1, 1)), n = Math.max(2, Math.ceil(om / spacing)), pts = [];
+    for (let k = 0; k <= n; k++) pts.push(slerpVec(a, b, k / n));
+    return pts;
+  }
+  function dust(out, count, size, bright) {
+    for (let i = 0; i < count; i++) out.push([...randDir(), size, bright * rnd(0.6, 1.2), rnd(0, TAU), 0, 0]);
+  }
+
+  // Sparse stars, some joined by thin glowing lines; only hints at the sphere.
+  function createConstellation() {
+    const out = [], stars = [];
+    for (let tries = 0; stars.length < 64 && tries < 6000; tries++) {
+      const p = randDir();
+      if (stars.every(s => dot(p, s) < Math.cos(0.26))) stars.push(p);
+    }
+    const edges = new Set();
+    stars.forEach((p, i) => {
+      stars.map((s, j) => [j, dot(p, s)]).filter(x => x[0] !== i)
+        .sort((a, b) => b[1] - a[1]).slice(0, 2)
+        .forEach(([j, c]) => { if (Math.acos(c) < 0.55 && Math.random() < 0.7) edges.add(i < j ? `${i}-${j}` : `${j}-${i}`); });
+    });
+    edges.forEach(key => {
+      const [i, j] = key.split('-').map(Number);
+      strokeAlong(out, arcPts(stars[i], stars[j], 0.006), 0.006, 5, 0.3, 1, rnd(0, TAU));
+    });
+    stars.forEach(p => out.push([...p, rnd(13, 20), rnd(0.75, 1), rnd(0, TAU), 0, 0]));
+    dust(out, 350, 6, 0.12);
+    return out;
+  }
+
+  // ---------- DOM ----------
+  const stage = document.getElementById('stage');
+  const canvas = document.getElementById('c');
+  const labelsEl = document.getElementById('labels');
+  const panel = document.getElementById('panel');
+  let hovered = null;
+
+  NODES.forEach(n => {
+    const el = document.createElement('button');
+    el.className = 'node';
+    el.textContent = n.label;
+    el.addEventListener('click', e => { if (suppressClick) { e.preventDefault(); return; } openNode(n.id); });
+    el.addEventListener('pointerenter', () => hovered = n.id);
+    el.addEventListener('pointerleave', () => { if (hovered === n.id) hovered = null; });
+    el.addEventListener('focus', () => hovered = n.id);
+    el.addEventListener('blur', () => { if (hovered === n.id) hovered = null; });
+    labelsEl.appendChild(el);
+    n.el = el;
+  });
+
+  // film grain tile
+  (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 180;
+    const g = c.getContext('2d'), img = g.createImageData(180, 180);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = Math.random() * 255;
+      img.data[i] = img.data[i+1] = img.data[i+2] = v; img.data[i+3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    document.getElementById('grain').style.backgroundImage = `url(${c.toDataURL()})`;
+  })();
+
+  // ---------- WebGL ----------
+  const gl = canvas.getContext('webgl', { premultipliedAlpha: true, antialias: false, alpha: true });
+  const VS = `
+    attribute vec3 aPos; attribute vec3 aAttr; attribute vec2 aFlow;
+    uniform mat3 uRot; uniform vec2 uRes; uniform vec2 uCenter;
+    uniform float uR, uD, uDpr, uTime, uIntro;
+    varying float vA;
+    void main() {
+      float ph = aAttr.z;
+      vec3 p = aPos * mix(1.3 + 0.25*sin(ph*11.0 + aFlow.x), 1.0, uIntro);
+      vec3 r = uRot * p;
+      float s = uD / (uD - r.z);
+      vec2 px = uCenter + vec2(r.x, -r.y) * uR * s;
+      gl_Position = vec4(px / uRes * 2.0 - 1.0, 0.0, 1.0);
+      gl_Position.y = -gl_Position.y;
+      float depth = smoothstep(-1.0, 1.0, r.z);
+      float wave = 0.85 + 0.15 * sin(uTime*0.0009 + aPos.y*3.0 + aPos.x*2.0 + ph*0.6);
+      // a soft highlight that slides along lines
+      float hl = pow(max(0.0, sin(aFlow.x - uTime*0.0007 + ph)), 18.0) * aFlow.y;
+      vA = aAttr.y * mix(0.08, 1.0, depth*depth) * wave * (1.0 + 2.6*hl) * uIntro;
+      gl_PointSize = aAttr.x * s * uDpr * (1.0 + 0.5*hl);
+    }`;
+  const FS = `
+    precision mediump float;
+    varying float vA;
+    void main() {
+      float d = length(gl_PointCoord - 0.5) * 2.0;
+      float core = smoothstep(0.35, 0.0, d);
+      float halo = exp(-d * d * 6.0) * 0.4;
+      float a = (core + halo) * vA * step(d, 1.0);
+      gl_FragColor = vec4(vec3(a), a);
+    }`;
+  function sh(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+  const buffers = {};
+  ['aPos', 'aAttr', 'aFlow'].forEach(name => {
+    buffers[name] = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers[name]);
+    const loc = gl.getAttribLocation(prog, name);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, name === 'aFlow' ? 2 : 3, gl.FLOAT, false, 0, 0);
+  });
+  const U = {};
+  ['uRot','uRes','uCenter','uR','uD','uDpr','uTime','uIntro'].forEach(k => U[k] = gl.getUniformLocation(prog, k));
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE);
+  gl.clearColor(0, 0, 0, 0);
+
+  let COUNT = 0, startT = performance.now();
+  function initializeConstellation() {
+    const pts = createConstellation();
+    COUNT = pts.length;
+    const P = new Float32Array(COUNT * 3), A = new Float32Array(COUNT * 3), F = new Float32Array(COUNT * 2);
+    pts.forEach((p, i) => {
+      P[i*3] = p[0]; P[i*3+1] = p[1]; P[i*3+2] = p[2];
+      A[i*3] = p[3]; A[i*3+1] = p[4]; A[i*3+2] = p[5];
+      F[i*2] = p[6]; F[i*2+1] = p[7];
+    });
+    [['aPos', P], ['aAttr', A], ['aFlow', F]].forEach(([k, d]) => { gl.bindBuffer(gl.ARRAY_BUFFER, buffers[k]); gl.bufferData(gl.ARRAY_BUFFER, d, gl.STATIC_DRAW); });
+    startT = performance.now();                        // start the gather-in
+  }
+  initializeConstellation();
+
+  // ---------- State ----------
+  let W = 0, H = 0, dpr = 1, R = 0;
+  const D = 4;
+  const IDLE_BEFORE_SPIN = 4000;                       // ms of stillness before the auto-spin starts
+  const COAST_TAU = 520;                               // ms: how far a flick naturally carries the sphere
+  let q = Q.norm(Q.mul(Q.axisAngle([1,0,0], 0.32), Q.axisAngle([0,1,0], -0.5)));
+  let vel = [0, 0, 0];                                 // angular velocity while dragging (rad/ms, axis*speed)
+  let dragging = false, last = null, lastMoveT = 0, downPos = null, suppressClick = false;
+  let lastInteract = performance.now();
+  let glide = null, activeId = null;                   // glide: the planned path onto a title
+  let shift = 0, shiftTarget = 0;
+  let intro = 0;
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    R = Math.min(W, H) * (W < 720 ? 0.34 : 0.3);
+    updateShiftTarget();
+  }
+  function updateShiftTarget() { shiftTarget = (activeId && W > 720) ? -Math.min(200, W * 0.14) : (activeId ? -H * 0.2 : 0); }
+  addEventListener('resize', resize);
+  resize();
+
+  // ---------- Landing on a title ----------
+  // After a flick the sphere keeps turning about the same axis it was flicked around, slows
+  // down evenly, and comes to rest with a title in the centre. It never reverses.
+  //
+  // Turning about a fixed axis, each title sweeps a circle across the view. For every title we
+  // work out, analytically, how far forward the spin must turn (phi) for that title to pass
+  // closest to the centre, and how close it gets (miss). We pick the title whose pass is both
+  // close to centre and close to where the flick would naturally stop (speed x COAST_TAU).
+  // The spin decelerates onto that phi; a small correction, blended in smoothly, removes the
+  // remaining miss so the title ends exactly centred.
+  function spinPlan(w0) {
+    const speed = Math.hypot(w0[0], w0[1], w0[2]);
+    const axis = [w0[0]/speed, w0[1]/speed, w0[2]/speed];
+    const phiNat = speed * COAST_TAU;
+    const m = Q.toMat(q);
+    let best = null;
+    for (const n of NODES) {
+      const p = rot(m, n.pos);
+      // z of the title after turning by phi:  z(phi) = A + B cos(phi) + C sin(phi)
+      const ap = dot(axis, p), A = axis[2] * ap, B = p[2] - A, Cc = cross(axis, p)[2];
+      const amp = Math.hypot(B, Cc);
+      const miss = Math.acos(clamp(A + amp, -1, 1));            // closest it ever gets to centre
+      let phi0 = Math.atan2(Cc, B);                               // where that happens
+      while (phi0 < 0.02) phi0 += TAU;                            // forward only
+      for (let k = 0; k < 3; k++) {
+        const phi = phi0 + k * TAU;
+        const short = Math.max(0, 0.45 * phiNat - phi);          // stopping far short feels like braking
+        const cost = miss * 2.6 + Math.abs(phi - phiNat) * 0.6 + short * 2;
+        if (!best || cost < best.cost) best = { id: n.id, phi, cost };
+      }
+    }
+    return { axis, speed, ...best };
+  }
+  function correctionAfter(qEnd, id) {                           // small turn that centres the title exactly
+    return Q.fromTo(rot(Q.toMat(qEnd), byId[id].pos), [0, 0, 1]);
+  }
+  function settleOn(id, dur) {                                   // no flick: ease the nearest/chosen title to centre
+    glide = { q0: q, axis: null, C: correctionAfter(q, id), T: reduceMotion ? 1 : dur, t0: performance.now() };
+  }
+  function nearestTitle() {
+    const m = Q.toMat(q);
+    let best = null, bz = -2;
+    for (const n of NODES) { const z = rot(m, n.pos)[2]; if (z > bz) { bz = z; best = n.id; } }
+    return best;
+  }
+  function landFromRelease(w0) {
+    const speed = Math.hypot(w0[0], w0[1], w0[2]);
+    if (speed < 4e-4) { settleOn(nearestTitle(), 650); return; }  // a gentle let-go: settle on what's in front
+    const plan = spinPlan(w0);
+    // Even deceleration from the release speed to zero over the planned angle: T = 2·phi / speed.
+    const T = reduceMotion ? 1 : clamp(2 * plan.phi / plan.speed, 350, 2600);
+    // If the duration had to be clamped, cap the starting speed so the path can't overshoot and come back.
+    const v = Math.min(plan.speed, 2.9 * plan.phi / T);
+    const qEnd = Q.norm(Q.mul(Q.axisAngle(plan.axis, plan.phi), q));
+    glide = { q0: q, axis: plan.axis, phi: plan.phi, v, C: correctionAfter(qEnd, plan.id), T, t0: performance.now() };
+  }
+
+  // ---------- Input ----------
+  function applyRotation(wx, wy, wz, ang) {
+    if (ang === 0) return;
+    q = Q.norm(Q.mul(Q.axisAngle([wx, wy, wz], ang), q));
+  }
+  stage.addEventListener('pointerdown', e => {
+    if (e.button !== undefined && e.button !== 0) return;
+    dragging = true; glide = null; vel = [0,0,0];
+    last = { x: e.clientX, y: e.clientY, t: performance.now() };
+    downPos = { x: e.clientX, y: e.clientY };
+    suppressClick = false;
+    lastInteract = performance.now();
+  });
+  addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const now = performance.now();
+    const dx = e.clientX - last.x, dy = e.clientY - last.y, dt = Math.max(1, now - last.t);
+    if (!suppressClick && Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 6) {
+      suppressClick = true; stage.classList.add('dragging');
+    }
+    const k = 1.15 / R, len = Math.hypot(dx, dy);
+    if (len > 0) {
+      const ax = [dy/len, dx/len, 0], ang = len * k;
+      applyRotation(ax[0], ax[1], ax[2], ang);
+      const inst = [ax[0]*ang/dt, ax[1]*ang/dt, 0];
+      vel = vel.map((v, i) => v * 0.4 + inst[i] * 0.6);
+    }
+    last = { x: e.clientX, y: e.clientY, t: now };
+    lastMoveT = now; lastInteract = now;
+  });
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false; stage.classList.remove('dragging');
+    const held = performance.now() - lastMoveT > 80;   // finger stopped before lifting: no flick
+    if (suppressClick) landFromRelease(held ? [0, 0, 0] : vel);
+    lastInteract = performance.now();
+    setTimeout(() => suppressClick = false, 0);         // only swallow the click that ends a drag
+  };
+  addEventListener('pointerup', endDrag);
+  addEventListener('pointercancel', endDrag);
+
+  // ---------- Panel ----------
+  function openNode(id) {
+    const n = byId[id];
+    activeId = id;
+    settleOn(id, 900);
+    document.getElementById('p-title').textContent = n.label;
+    document.getElementById('p-body').textContent = n.body;
+    const links = document.getElementById('p-links');
+    links.innerHTML = '';
+    NODES.filter(o => o.id !== id).forEach(o => {
+      const b = document.createElement('button');
+      b.textContent = o.label;
+      b.onclick = () => openNode(o.id);
+      links.appendChild(b);
+    });
+    panel.classList.add('open'); panel.setAttribute('aria-hidden', 'false');
+    updateShiftTarget();
+  }
+  function closePanel() {
+    activeId = null;
+    panel.classList.remove('open'); panel.setAttribute('aria-hidden', 'true');
+    updateShiftTarget();
+    lastInteract = performance.now();
+  }
+  document.getElementById('close').onclick = closePanel;
+  addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
+
+  // ---------- Render ----------
+  const css = v => [v[0], -v[1], v[2]];                // world (y up) -> CSS (y down)
+  const MAX_TILT = 48 * Math.PI / 180;                 // titles never turn further than this from the viewer
+
+  let prevT = performance.now();
+  const pageStart = prevT;
+  function frame(now) {
+    const dt = Math.min(50, now - prevT); prevT = now;
+    intro = reduceMotion ? 1 : ease(clamp((now - startT) / 1600, 0, 1));
+
+    if (glide) {
+      const s = clamp((now - glide.t0) / glide.T, 0, 1);
+      let spin = [1, 0, 0, 0], w = s * s * (3 - 2 * s);
+      if (glide.axis) {
+        // angle turned so far: starts at the release speed, ends at rest exactly on phi
+        const ang = (s*s*s - 2*s*s + s) * glide.T * glide.v + (3*s*s - 2*s*s*s) * glide.phi;
+        spin = Q.axisAngle(glide.axis, ang);
+        w = ang / glide.phi;                             // steer in step with the spin, so the path curves gently onto the title
+      }
+      q = Q.norm(Q.mul(Q.mul(Q.slerp([1, 0, 0, 0], glide.C, w), spin), glide.q0));
+      if (s >= 1) { glide = null; lastInteract = now; }   // landed: the idle clock starts now
+    } else if (!dragging && !activeId && !reduceMotion) {
+      const idle = now - lastInteract;
+      if (idle > IDLE_BEFORE_SPIN) applyRotation(0, 1, 0, 0.00012 * dt * smooth(IDLE_BEFORE_SPIN, IDLE_BEFORE_SPIN + 2000, idle));
+    }
+    shift += (shiftTarget - shift) * (1 - Math.pow(0.001, dt / 1000));
+
+    const m = Q.toMat(q);
+    const cx = W / 2 + (W > 720 ? shift : 0);
+    const cy = H / 2 + (W > 720 ? 0 : shift);
+
+    // sphere
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniformMatrix3fv(U.uRot, false, [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]]);
+    gl.uniform2f(U.uRes, W, H);
+    gl.uniform2f(U.uCenter, cx, cy);
+    gl.uniform1f(U.uR, R);
+    gl.uniform1f(U.uD, D);
+    gl.uniform1f(U.uDpr, dpr);
+    gl.uniform1f(U.uTime, reduceMotion ? 0 : now);
+    gl.uniform1f(U.uIntro, intro);
+    gl.drawArrays(gl.POINTS, 0, COUNT);
+
+    // titles: lie on the sphere, but stay readable — tilt away from the viewer by at most
+    // MAX_TILT, and keep the baseline level with the screen so nothing is sideways or upside down
+    labelsEl.style.perspective = `${D * R}px`;
+    labelsEl.style.perspectiveOrigin = `${cx}px ${cy}px`;
+    const labelIn = reduceMotion ? 1 : smooth(0.3, 1, ease(clamp((now - pageStart) / 1600, 0, 1)));
+    for (const n of NODES) {
+      const r = rot(m, n.pos), z = r[2];
+      const front = smooth(-0.6, 0.4, z);
+      const el = n.el;
+      el.classList.toggle('lit', n.id === hovered || n.id === activeId);
+      el.style.setProperty('--a', (0.45 + 0.55 * front).toFixed(3));
+      // titles directly behind the sphere fade out so they never show through the one in front
+      const behind = smooth(-0.82, -0.5, z);
+      el.style.opacity = (labelIn * behind).toFixed(3);
+      el.style.pointerEvents = behind < 0.3 ? 'none' : '';
+      el.style.zIndex = String(Math.round((z + 1) * 100));
+
+      const th = Math.acos(clamp(z, -1, 1));
+      const nrm = z < -0.999 ? [0, 0, 1] : th > MAX_TILT ? slerpVec([0, 0, 1], r, MAX_TILT / th) : r;
+      const e = norm3([nrm[2], 0, -nrm[0]]);             // on the surface, level with the screen
+      const u = cross(nrm, e);                           // surface "up"
+      const c1 = css(e), c2 = css(u).map(v => -v), c3 = css(nrm);
+      const lift = R * 1.03, T = [cx + r[0] * lift, cy - r[1] * lift, r[2] * lift];
+      el.style.transform = `matrix3d(${c1[0]},${c1[1]},${c1[2]},0,${c2[0]},${c2[1]},${c2[2]},0,${c3[0]},${c3[1]},${c3[2]},0,${T[0]},${T[1]},${T[2]},1) translate(-50%,-50%)`;
+    }
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
